@@ -59,11 +59,8 @@ public class OpenMapTilesSchema {
   public static final String VERSION = "3.16.0";
   public static final String ATTRIBUTION =
     "<a href=\"https://www.openmaptiles.org/\" target=\"_blank\">&copy; OpenMapTiles</a> <a href=\"https://www.openstreetmap.org/copyright\" target=\"_blank\">&copy; OpenStreetMap contributors</a>";
-  public static final List<String> LANGUAGES = List.of("af", "am", "ar", "az", "be", "bg", "bn", "br", "bs", "ca", "co",
-    "cs", "cy", "da", "de", "el", "en", "eo", "es", "et", "eu", "fa", "fi", "fr", "fy", "ga", "gd", "he", "hi", "hr",
-    "hu", "hy", "id", "is", "it", "ja", "ja_kana", "ja_rm", "ja-Latn", "ja-Hira", "ka", "kk", "kn", "ko", "ko-Latn",
-    "ku", "la", "lb", "lt", "lv", "mk", "mt", "ml", "nl", "no", "oc", "pa", "pnb", "pl", "pt", "rm", "ro", "ru", "sk",
-    "sl", "sq", "sr", "sr-Latn", "sv", "ta", "te", "th", "tok", "tr", "uk", "ur", "vi", "zh", "zh-Hant", "zh-Hans");
+public static final List<String> LANGUAGES = List.of("cs", "de", "en", "es", "fr", "hi", "hu", "it", "ja",
+    "ja-Latn", "ko", "ko-Latn", "nl", "pl", "pt", "ro", "ru", "sk", "tr", "zh-Hant", "zh-Hans");
 
   /** Returns a list of expected layer implementation instances from the {@code layers} package. */
   public static List<Layer> createInstances(Translations translations, PlanetilerConfig config, Stats stats) {
@@ -975,6 +972,17 @@ public class OpenMapTilesSchema {
       public static final String ONEWAY = "oneway";
 
       /**
+       * Mark with true whether a way is also a oneway for cyclists
+       * <p>
+       * allowed values:
+       * <ul>
+       * <li>true
+       * <li>false
+       * </ul>
+       */
+      public static final String ONEWAY_BICYCLE = "oneway_bicycle";
+
+      /**
        * Mark with <code>1</code> whether way is a ramp (link or steps) or not with <code>0</code>.
        * <p>
        * allowed values:
@@ -1057,6 +1065,10 @@ public class OpenMapTilesSchema {
        * (highways only).
        */
       public static final String BICYCLE = "bicycle";
+      /** Original value of the ['cycleway'] (http://wiki.openstreetmap.org/wiki/Key:cycleway) tag (highways only). */
+      public static final String CYCLEWAY = "cycleway";
+      /** Value of the [<code>bm-weight-tracked</code>] */
+      public static final String BM_WEIGHT_TRACKED = "bm_weight_tracked";
       /**
        * Original value of the <a href="http://wiki.openstreetmap.org/wiki/Key:foot"><code>foot</code></a> tag (highways
        * only).
@@ -1098,6 +1110,19 @@ public class OpenMapTilesSchema {
        * </ul>
        */
       public static final String SURFACE = "surface";
+
+      /**
+       * Shows if the way is part of an official cycling network (https://wiki.openstreetmap.org/wiki/Cycle_routes)
+       * <p>
+       * allowed values:
+       * <ul>
+       * <li>"icn"
+       * <li>"ncn"
+       * <li>"rcn"
+       * <li>"lcn"
+       * </ul>
+       */
+      public static final String CYCLE_NETWORK = "cycle_network";
     }
     /** Attribute values for map elements in the transportation layer. */
     final class FieldValues {
@@ -1165,6 +1190,11 @@ public class OpenMapTilesSchema {
       public static final String SURFACE_PAVED = "paved";
       public static final String SURFACE_UNPAVED = "unpaved";
       public static final Set<String> SURFACE_VALUES = Set.of("paved", "unpaved");
+      public static final String CYCLE_NETWORK_ICN = "icn";
+      public static final String CYCLE_NETWORK_NCN = "ncn";
+      public static final String CYCLE_NETWORK_RCN = "rcn";
+      public static final String CYCLE_NETWORK_LCN = "lcn";
+      public static final Set<String> CYCLE_NETWORK_VALUES = Set.of(CYCLE_NETWORK_ICN, CYCLE_NETWORK_NCN, CYCLE_NETWORK_RCN, CYCLE_NETWORK_LCN);
     }
     /** Complex mappings to generate attribute values from OSM element tags in the transportation layer. */
     final class FieldMappings {
@@ -1395,6 +1425,8 @@ public class OpenMapTilesSchema {
        * </ul>
        */
       public static final String NETWORK = "network";
+      /** The OSM [<code>name</code>] tag of the network */
+      public static final String NETWORK_NAME = "network_name";
 
       /**
        * Distinguish between more and less important roads and roads under construction.
@@ -1893,6 +1925,18 @@ public class OpenMapTilesSchema {
        * </ul>
        */
       public static final String INDOOR = "indoor";
+      /** Original value of <a href="https://wiki.openstreetmap.org/wiki/Key:phone"><code>phone</code></a> tag. */
+      public static final String PHONE = "phone";
+      /** Original value of <a href="https://wiki.openstreetmap.org/wiki/Key:email"><code>phone</code></a> tag. */
+      public static final String EMAIL = "email";
+      /** Original value of <a href="https://wiki.openstreetmap.org/wiki/Key:website"><code>phone</code></a> tag. */
+      public static final String WEBSITE = "website";
+      /**
+       * Original value of <a href="https://wiki.openstreetmap.org/wiki/Key:opening_hours"><code>phone</code></a> tag.
+       */
+      public static final String OPENING_HOURS = "opening_hours";
+      /** This is a concatenation of the different address keys available, example addr:housenumber + addr:street */
+      public static final String ADDRESS = "address";
     }
     /** Attribute values for map elements in the poi layer. */
     final class FieldValues {

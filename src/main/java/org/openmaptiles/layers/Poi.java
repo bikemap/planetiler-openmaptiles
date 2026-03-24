@@ -50,7 +50,9 @@ import com.onthegomap.planetiler.config.PlanetilerConfig;
 import com.onthegomap.planetiler.expression.MultiExpression;
 import com.onthegomap.planetiler.geo.GeoUtils;
 import com.onthegomap.planetiler.geo.GeometryException;
+import com.onthegomap.planetiler.geo.PolygonIndex;
 import com.onthegomap.planetiler.reader.SimpleFeature;
+import com.onthegomap.planetiler.reader.SourceFeature;
 import com.onthegomap.planetiler.stats.Stats;
 import com.onthegomap.planetiler.util.Parse;
 import com.onthegomap.planetiler.util.Translations;
@@ -80,6 +82,7 @@ public class Poi implements
   OpenMapTilesSchema.Poi,
   Tables.OsmPoiPoint.Handler,
   Tables.OsmPoiPolygon.Handler,
+  OpenMapTilesProfile.NaturalEarthProcessor,
   ForwardingProfile.LayerPostProcessor,
   ForwardingProfile.FinishHandler {
 
@@ -128,10 +131,21 @@ public class Poi implements
   private final Stats stats;
   private final Map<String, List<Tables.OsmPoiPoint>> aggStops = new HashMap<>();
 
+  private static final Set<String> COUNTRIES_EUROPE = Set.of("at", "de", "nl", "no", "ch", "pl");
+  private static final Set<String> SUPPORTED_COUNTRIES = Set.of("at", "de", "nl", "no", "ch", "pl", "br", "ru");
+  private static final PolygonIndex<String> countries = PolygonIndex.create();
+
+  private final boolean z12Pois;
+
   public Poi(Translations translations, PlanetilerConfig config, Stats stats) {
     this.classMapping = FieldMappings.Class.index();
     this.translations = translations;
     this.stats = stats;
+    z12Pois = config.arguments().getBoolean(
+        "pois_z12_enabled",
+        "transportation(_name) layer: show all paths on z13",
+        false
+    );
   }
 
   static int poiClassRank(String clazz) {
@@ -154,12 +168,133 @@ public class Poi implements
   private int minzoom(String subclass, String mappingKey) {
     boolean lowZoom = ("station".equals(subclass) && "railway".equals(mappingKey)) ||
       "halt".equals(subclass) || "ferry_terminal".equals(subclass);
-    return lowZoom ? 12 : 14;
+    return z12Pois || lowZoom ? 12 : 14;
+  }
+
+  private String poiAddress(String addressFull, String countryCode, String houseNumber, String street, String city, String postcode, String suburb, String district, String province, String state) {
+    if (nullIfEmpty(addressFull) != null) {
+      return addressFull;
+    }
+
+    if (nullIfEmpty(houseNumber) == null) {
+      return null;
+    }
+
+    String streetAndNumber;
+    ArrayList<String> parts = new ArrayList<>();
+
+    if (COUNTRIES_EUROPE.contains(countryCode)) {
+      if (nullIfEmpty(street) != null) {
+        streetAndNumber = String.join(" ", street, houseNumber);
+      } else {
+        streetAndNumber = houseNumber;
+      }
+      parts.add(streetAndNumber);
+
+      if (nullIfEmpty(postcode) != null) {
+        parts.add(postcode);
+      }
+
+      if (nullIfEmpty(city) != null) {
+        parts.add(city);
+      }
+
+    } else if (countryCode.equals("br")) {
+      if (nullIfEmpty(street) != null) {
+        streetAndNumber = String.join(" ", street, houseNumber);
+      } else {
+        streetAndNumber = houseNumber;
+      }
+      parts.add(streetAndNumber);
+
+      if (nullIfEmpty(district) != null) {
+        parts.add(district);
+      }
+
+      if (nullIfEmpty(state) != null) {
+        parts.add(state);
+      }
+
+      if (nullIfEmpty(postcode) != null) {
+        parts.add(postcode);
+      }
+    } else if (countryCode.equals("ru")) {
+      if (nullIfEmpty(street) != null) {
+        streetAndNumber = String.join(" ", street, houseNumber);
+      } else {
+        streetAndNumber = houseNumber;
+      }
+      parts.add(streetAndNumber);
+
+      if (nullIfEmpty(suburb) != null) {
+        parts.add(suburb);
+      }
+
+      if (nullIfEmpty(district) != null) {
+        parts.add(district);
+      }
+
+      if (nullIfEmpty(province) != null) {
+        parts.add(province);
+      }
+
+      if (nullIfEmpty(postcode) != null) {
+        parts.add(postcode);
+      }
+
+    } else {
+      if (nullIfEmpty(street) != null) {
+        streetAndNumber = String.join(" ", houseNumber, street);
+      } else {
+        streetAndNumber = houseNumber;
+      }
+      parts.add(streetAndNumber);
+
+      if (nullIfEmpty(city) != null) {
+        parts.add(city);
+      }
+
+      if (nullIfEmpty(state) != null) {
+        parts.add(state);
+      }
+
+      if (nullIfEmpty(postcode) != null) {
+        parts.add(postcode);
+      }
+
+    }
+
+    return String.join(", ", parts);
   }
 
   @Override
   public void release() {
     aggStops.clear();
+  }
+
+  @Override
+  public void processNaturalEarth(String table, SourceFeature feature,
+      FeatureCollector features) {
+    if (!"ne_10m_admin_0_countries".equals(table)) {
+      return;
+    }
+
+    Object countryCodeTag = feature.getTag("iso_a2");
+
+    if (!(countryCodeTag instanceof String)) {return;}
+
+    String countryCode = ((String) countryCodeTag).trim().toLowerCase();
+
+    if (!SUPPORTED_COUNTRIES.contains(countryCode)) {return;}
+
+    try {
+      synchronized (this) {
+        countries.put(feature.polygon(), countryCode);
+      }
+    } catch (GeometryException e) {
+      LOGGER.error("Failed to get Country Polygon: " + e);
+    }
+
   }
 
   @Override
@@ -262,7 +397,7 @@ public class Poi implements
     setupPoiFeature(element, features.centroidIfConvex(LAYER_NAME), null);
   }
 
-  private <T extends Tables.WithSubclass & Tables.WithStation & Tables.WithFunicular & Tables.WithSport & Tables.WithInformation & Tables.WithReligion & Tables.WithMappingKey & Tables.WithName & Tables.WithIndoor & Tables.WithLayer & Tables.WithSource & Tables.WithOperator & Tables.WithNetwork & Tables.WithBrand & Tables.WithRef> void setupPoiFeature(
+  private <T extends Tables.WithSubclass & Tables.WithStation & Tables.WithFunicular & Tables.WithSport & Tables.WithInformation & Tables.WithReligion & Tables.WithMappingKey & Tables.WithName & Tables.WithIndoor & Tables.WithLayer & Tables.WithSource & Tables.WithOperator & Tables.WithNetwork & Tables.WithBrand & Tables.WithRef & Tables.WithPhone & Tables.WithWebsite & Tables.WithEmail & Tables.WithOpeningHours & Tables.WithAddrCity & Tables.WithAddrDistrict & Tables.WithAddrFull & Tables.WithAddrHousenumber & Tables.WithAddrPostcode & Tables.WithAddrProvince & Tables.WithAddrState & Tables.WithAddrStreet & Tables.WithAddrSuburb & Tables.WithAddrCountry> void setupPoiFeature(
     T element, FeatureCollector.Feature output, Integer aggStop) {
     String rawSubclass = element.subclass();
     if ("station".equals(rawSubclass) && "subway".equals(element.station())) {
@@ -311,12 +446,43 @@ public class Poi implements
       minzoom = 10;
     }
 
+    String countryCode = null;
+
+    try {
+      countryCode = countries.get(element.source().worldGeometry().getCentroid());
+    } catch (GeometryException e) {
+      e.log(stats, "omt_transportation_name_gb_test",
+          "Unable to test highway against GB route network: " + element.source().id());
+    }
+
+    if (countryCode == null) {
+      countryCode = element.addrCountry() != null ? element.addrCountry().trim().toLowerCase() : "";
+    }
+
+    String address = poiAddress(
+        element.addrFull(),
+        countryCode,
+        element.addrHousenumber(),
+        element.addrStreet(),
+        element.addrCity(),
+        element.addrPostcode(),
+        element.addrSuburb(),
+        element.addrDistrict(),
+        element.addrProvince(),
+        element.addrState()
+    );
+
     output.setBufferPixels(BUFFER_SIZE)
       .setAttr(Fields.CLASS, poiClass)
       .setAttr(Fields.SUBCLASS, subclass)
       .setAttr(Fields.LAYER, nullIfLong(element.layer(), 0))
       .setAttr(Fields.LEVEL, Parse.parseLongOrNull(element.source().getTag("level")))
       .setAttr(Fields.INDOOR, element.indoor() ? 1 : null)
+      .setAttr(Fields.PHONE, element.phone())
+      .setAttr(Fields.EMAIL, element.email())
+      .setAttr(Fields.WEBSITE, element.website())
+      .setAttr(Fields.OPENING_HOURS, element.openingHours())
+      .setAttr(Fields.ADDRESS, address)
       .setAttr(Fields.AGG_STOP, aggStop)
       .putAttrs(OmtLanguageUtils.getNames(element.source().tags(), translations))
       .setPointLabelGridPixelSize(14, 64)

@@ -181,10 +181,14 @@ public class Transportation implements
   private final AtomicBoolean loggedNoGb = new AtomicBoolean(false);
   private final AtomicBoolean loggedNoIreland = new AtomicBoolean(false);
   private final boolean z13Paths;
+  private final boolean z12Paths;
+  private final boolean z13Tracks;
+  private final boolean z12Tracks;
   private final Stats stats;
   private final PlanetilerConfig config;
   private PreparedGeometry greatBritain = null;
   private PreparedGeometry ireland = null;
+  private static final Set<String> ONE_WAY_BICYCLE_VALUES = Set.of("true", "yes", "1");
 
   public Transportation(Translations translations, PlanetilerConfig config, Stats stats) {
     this.config = config;
@@ -194,12 +198,28 @@ public class Transportation implements
       "transportation(_name) layer: show all paths on z13",
       false
     );
+    z12Paths = config.arguments().getBoolean(
+        "transportation_z12_paths",
+        "transportation(_name) layer: show all paths on z12",
+        false
+    );
+    z13Tracks = config.arguments().getBoolean(
+        "transportation_z13_tracks",
+        "transportation(_name) layer: show all tracks on z13",
+        false
+    );
+    z12Tracks = config.arguments().getBoolean(
+        "transportation_z12_tracks",
+        "transportation(_name) layer: show all tracks on z12",
+        false
+    );
     MINZOOMS = Map.ofEntries(
-      entry(FieldValues.CLASS_PATH, z13Paths ? 13 : 14),
-      entry(FieldValues.CLASS_TRACK, 14),
+      entry(FieldValues.CLASS_PATH, z12Paths ? 12 : z13Paths ? 13 : 14),
+      entry(FieldValues.CLASS_TRACK, z12Tracks ? 12 : z13Tracks ? 13 : 14),
       entry(FieldValues.CLASS_SERVICE, 13),
       entry(FieldValues.CLASS_MINOR, 13),
       entry(FieldValues.CLASS_RACEWAY, 12),
+      entry(FieldValues.SUBCLASS_CYCLEWAY, 12),
       entry(FieldValues.CLASS_TERTIARY, 11),
       entry(FieldValues.CLASS_BUSWAY, 11),
       entry(FieldValues.CLASS_BUS_GUIDEWAY, 11),
@@ -316,6 +336,24 @@ public class Transportation implements
     return "bridge".equals(manMade) || "pier".equals(manMade);
   }
 
+  private static boolean onewayBicycle(String tagValue) {
+    return ONE_WAY_BICYCLE_VALUES.contains(tagValue);
+  }
+
+  private static String cycleway(String tagValue, String cycleWayBoth, String cycleWayLeft, String cycleWayRight, String cycleStreet) {
+    if (tagValue != null) {
+      return tagValue;
+    } else if (cycleWayBoth != null) {
+      return cycleWayBoth;
+    } else if (cycleWayLeft != null) {
+      return cycleWayLeft;
+    } else if (cycleWayRight != null) {
+      return cycleWayRight;
+    } else {
+      return cycleStreet;
+    }
+  }
+
   @Override
   public void processNaturalEarth(String table, SourceFeature feature,
     FeatureCollector features) {
@@ -351,7 +389,7 @@ public class Transportation implements
 
   @Override
   public List<OsmRelationInfo> preprocessOsmRelation(OsmElement.Relation relation) {
-    if (relation.hasTag("route", "road", "hiking")) {
+    if (relation.hasTag("route", "road", "hiking", "bicycle", "mtb")) {
       RouteNetwork networkType = null;
       String network = relation.getString("network");
       String ref = relation.getString("ref");
@@ -359,7 +397,15 @@ public class Transportation implements
       String colour = coalesce(
         nullIfEmpty(relation.getString("colour")), nullIfEmpty(relation.getString("ref:colour")));
 
-      if ("US:I".equals(network)) {
+      if (FieldValues.CYCLE_NETWORK_ICN.equals(network)) {
+        networkType = RouteNetwork.INTERNATIONAL_CYCLE_NETWORK;
+      } else if (FieldValues.CYCLE_NETWORK_NCN.equals(network)) {
+        networkType = RouteNetwork.NATIONAL_CYCLE_NETWORK;
+      } else if (FieldValues.CYCLE_NETWORK_RCN.equals(network)) {
+        networkType = RouteNetwork.REGIONAL_CYCLE_NETWORK;
+      } else if (FieldValues.CYCLE_NETWORK_LCN.equals(network)) {
+        networkType = RouteNetwork.LOCAL_CYCLE_NETWORK;
+      } else if ("US:I".equals(network)) {
         networkType = RouteNetwork.US_INTERSTATE;
       } else if ("US:US".equals(network)) {
         networkType = RouteNetwork.US_HIGHWAY;
@@ -405,12 +451,14 @@ public class Transportation implements
 
   List<RouteRelation> getRouteRelations(Tables.OsmHighwayLinestring element) {
     String ref = element.ref();
-    List<OsmReader.RelationMember<RouteRelation>> relations = element.source().relationInfo(RouteRelation.class);
+    String network = nullIfEmpty(coalesce(element.network(), "").strip().toLowerCase());
+    boolean includeSuperRelations = (network != null && FieldValues.CYCLE_NETWORK_VALUES.contains(network));
+    List<OsmReader.RelationMember<RouteRelation>> relations = element.source().relationInfo(RouteRelation.class, includeSuperRelations);
     List<RouteRelation> result = new ArrayList<>(relations.size() + 1);
     for (var relationMember : relations) {
       var relation = relationMember.relation();
       // avoid duplicates - list should be very small and usually only one
-      if (!result.contains(relation)) {
+      if (!result.contains(relation) && (!includeSuperRelations || !relationMember.isSuperRelation())) {
         result.add(relation);
       }
     }
@@ -476,19 +524,16 @@ public class Transportation implements
     return result;
   }
 
-  RouteRelation getRouteRelation(Tables.OsmHighwayLinestring element) {
-    List<RouteRelation> all = getRouteRelations(element);
-    return all.isEmpty() ? null : all.getFirst();
-  }
-
   @Override
   public void process(Tables.OsmHighwayLinestring element, FeatureCollector features) {
     if (element.isArea()) {
       return;
     }
 
-    RouteRelation routeRelation = getRouteRelation(element);
-    RouteNetwork networkType = routeRelation != null ? routeRelation.networkType : null;
+    List<RouteRelation> routeRelations = getRouteRelations(element);
+    RouteRelation cycleNetWorkRelation = getCycleNetWorkRelation(routeRelations);
+    RouteRelation routeRelation = cycleNetWorkRelation != null ? cycleNetWorkRelation : routeRelations.isEmpty() ? null : routeRelations.getFirst();
+    RouteNetwork networkType = routeRelation != null ? routeRelation.networkType() : null;
 
     String highway = element.highway();
     String highwayClass = highwayClass(element.highway(), element.publicTransport(), element.construction(),
@@ -501,6 +546,14 @@ public class Transportation implements
       var minZoomAndNewClass = getMinzoomAndClass(element, highwayClass);
       int minzoom = minZoomAndNewClass.minzoom;
 
+      if (cycleNetWorkRelation != null) {
+        minzoom = Math.min(minzoom, getCycleNetWorkMinZoom(cycleNetWorkRelation.networkType));
+      }
+
+      if (minzoom > 12 && (element.bicycle() != null && element.bicycle().equals("yes")) || nullIfEmpty(element.mtbScale()) != null) {
+        minzoom = 12;
+      }
+
       if (minzoom > config.maxzoom()) {
         return;
       }
@@ -511,12 +564,18 @@ public class Transportation implements
 
       boolean expressway = element.expressway() && !"motorway".equals(highway) && !(element.isRamp() || highwayRamp);
 
+      String bmWeightTrackedString = nullIfEmpty(element.bmWeightTracked());
+      Double bmWeightTrackedDouble = bmWeightTrackedString != null ? Double.parseDouble(bmWeightTrackedString) : null;
+
       FeatureCollector.Feature feature = features.line(LAYER_NAME).setBufferPixels(BUFFER_SIZE)
         // main attributes at all zoom levels (used for grouping <= z8)
         .setAttr(Fields.CLASS, coalesce(minZoomAndNewClass.classOverride, highwayClass))
         .setAttr(Fields.SUBCLASS, highwaySubclass(highwayClass, element.publicTransport(), highway))
         .setAttr(Fields.NETWORK, networkType != null ? networkType.name : null)
+        .setAttr(Fields.CYCLE_NETWORK, cycleNetWorkRelation != null ? cycleNetWorkRelation.networkType.name : null)
         .setAttrWithMinSize(Fields.BRUNNEL, brunnel(element.isBridge(), element.isTunnel(), element.isFord()), 4, 4, 12)
+        // z7+
+        .setAttrWithMinzoom(Fields.BM_WEIGHT_TRACKED, bmWeightTrackedDouble != null ? Math.round(bmWeightTrackedDouble) : null, 7)
         // z8+
         .setAttrWithMinzoom(Fields.EXPRESSWAY, expressway ? 1 : null, 8)
         // z9+
@@ -528,6 +587,7 @@ public class Transportation implements
         .setAttrWithMinzoom(Fields.OFFICIAL, official(highway, element.informal(), element.operator()), 9)
         .setAttrWithMinzoom(Fields.ACCESS, access(element.access()), 9)
         .setAttrWithMinzoom(Fields.TOLL, element.toll() ? 1 : null, 9)
+        .setAttrWithMinzoom(Fields.CYCLEWAY, cycleway(nullIfEmpty(element.cycleway()), nullIfEmpty(element.cyclewayBoth()), nullIfEmpty(element.cyclewayLeft()), nullIfEmpty(element.cyclewayRight()), nullIfEmpty(element.cyclewayStreet())), 9)
         // sometimes z9+, sometimes z12+
         .setAttr(Fields.RAMP, minzoom >= 12 ? rampAboveZ12 :
           ((ZoomFunction<Integer>) z -> z < 9 ? null : z >= 12 ? rampAboveZ12 : rampBelowZ12))
@@ -535,6 +595,7 @@ public class Transportation implements
         .setAttrWithMinzoom(Fields.SERVICE, service, 12)
         .setAttrWithMinzoom(Fields.ONEWAY, nullIfInt(element.isOneway(), 0), 12)
         .setAttrWithMinzoom(Fields.SURFACE, surface(coalesce(element.surface(), element.tracktype())), 12)
+        .setAttrWithMinzoom(Fields.ONEWAY_BICYCLE, element.onewayBicycle() != null ? onewayBicycle(element.onewayBicycle()) : null, 12)
         .setMinPixelSize(0) // merge during post-processing, then limit by size
         .setSortKey(element.zOrder())
         .setMinZoom(minzoom);
@@ -557,6 +618,27 @@ public class Transportation implements
         "Unable to get feature length for trunk upgrade: " + element.source().id());
       return false;
     }
+  }
+
+  int getCycleNetWorkMinZoom(RouteNetwork network) {
+    switch (network) {
+      case RouteNetwork.REGIONAL_CYCLE_NETWORK -> {
+        return 8;
+      }
+      case RouteNetwork.LOCAL_CYCLE_NETWORK -> {
+        return 11;
+      }
+      default -> {
+        return 7;
+      }
+    }
+  }
+
+  RouteRelation getCycleNetWorkRelation(List<RouteRelation> relations) {
+    return relations.stream()
+        .filter(rel -> rel.networkType() != null && FieldValues.CYCLE_NETWORK_VALUES.contains(rel.networkType.name))
+        .findFirst()
+        .orElse(null);
   }
 
   record MinZoomAndNewClass(int minzoom, ZoomFunction<String> classOverride) {}
@@ -582,8 +664,10 @@ public class Transportation implements
       String baseClass = highwayClass.replace("_construction", "");
       minzoom = switch (baseClass) {
         case FieldValues.CLASS_SERVICE -> isDrivewayOrParkingAisle(service(element.service())) ? 14 : 13;
-        case FieldValues.CLASS_TRACK, FieldValues.CLASS_PATH -> routeRank == 1 ? 12 :
-          (z13Paths || !nullOrEmpty(element.name()) || routeRank <= 2 || !nullOrEmpty(element.sacScale())) ? 13 : 14;
+        case FieldValues.CLASS_TRACK -> z12Tracks || routeRank == 1 ? 12 :
+          (z13Tracks || !nullOrEmpty(element.name()) || routeRank <= 2 || !nullOrEmpty(element.sacScale())) ? 13 : 14;
+        case FieldValues.CLASS_PATH -> z12Paths || routeRank == 1 ? 12 :
+            (z13Paths || !nullOrEmpty(element.name()) || routeRank <= 2 || !nullOrEmpty(element.sacScale())) ? 13 : 14;
         case FieldValues.CLASS_TRUNK -> {
           boolean z5trunk = isTrunkForZ5(highway, routeRelations);
 
@@ -737,6 +821,10 @@ public class Transportation implements
 
   enum RouteNetwork {
 
+    INTERNATIONAL_CYCLE_NETWORK(FieldValues.CYCLE_NETWORK_ICN, FieldValues.CYCLE_NETWORK_ICN),
+    NATIONAL_CYCLE_NETWORK(FieldValues.CYCLE_NETWORK_NCN, FieldValues.CYCLE_NETWORK_NCN),
+    REGIONAL_CYCLE_NETWORK(FieldValues.CYCLE_NETWORK_RCN, FieldValues.CYCLE_NETWORK_RCN),
+    LOCAL_CYCLE_NETWORK(FieldValues.CYCLE_NETWORK_LCN, FieldValues.CYCLE_NETWORK_LCN),
     US_INTERSTATE("us-interstate", null),
     US_HIGHWAY("us-highway", null),
     US_STATE("us-state", null),

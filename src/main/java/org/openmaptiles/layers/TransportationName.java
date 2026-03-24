@@ -213,7 +213,8 @@ public class TransportationName implements
   public void process(Tables.OsmHighwayLinestring element, FeatureCollector features) {
     String ref = element.ref();
     List<Transportation.RouteRelation> relations = transportation.getRouteRelations(element);
-    Transportation.RouteRelation firstRelationWithNetwork = relations.stream()
+    Transportation.RouteRelation cycleNetWorkRelation = transportation.getCycleNetWorkRelation(relations);
+    Transportation.RouteRelation firstRelationWithNetwork = cycleNetWorkRelation != null ? cycleNetWorkRelation : relations.stream()
       .filter(rel -> rel.networkType() != null)
       .findFirst()
       .orElse(null);
@@ -249,6 +250,15 @@ public class TransportationName implements
 
     // inherit min zoom threshold from visible road, and ensure we never show a label on a road that's not visible yet.
     minzoom = Math.max(minzoom, transportation.getMinzoomAndClass(element, highwayClass).minzoom());
+
+    if (cycleNetWorkRelation != null) {
+      minzoom = Math.min(minzoom, transportation.getCycleNetWorkMinZoom(cycleNetWorkRelation.networkType()));
+    }
+
+    if (minzoom > 12 && (element.bicycle() != null && element.bicycle().equals("yes")) || nullIfEmpty(element.mtbScale()) != null) {
+      minzoom = 12;
+    }
+
     if (minzoom > config.maxzoom()) {
       return;
     }
@@ -263,6 +273,7 @@ public class TransportationName implements
       .setAttr(Fields.NETWORK,
         firstRelationWithNetwork != null ? firstRelationWithNetwork.networkType().name : !nullOrEmpty(ref) ? "road" :
           null)
+      .setAttr(Fields.NETWORK_NAME, cycleNetWorkRelation != null ? cycleNetWorkRelation.name() : null)
       .setAttr(Fields.CLASS, highwayClass)
       .setAttr(Fields.SUBCLASS, highwaySubclass(highwayClass, null, highway))
       .setMinPixelSize(0)

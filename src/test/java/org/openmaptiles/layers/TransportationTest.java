@@ -841,13 +841,13 @@ class TransportationTest extends AbstractLayerTest {
       "mtb_scale", "4",
       "surface", "unpaved",
       "bicycle", "yes",
-      "_minzoom", 13
+      "_minzoom", 12
     ), Map.of(
       "_layer", "transportation_name",
       "class", "path",
       "subclass", "path",
       "name", "Path name",
-      "_minzoom", 13
+      "_minzoom", 12
     )), process(lineFeature(Map.of(
       "highway", "path",
       "mtb:scale", "4",
