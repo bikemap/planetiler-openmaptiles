@@ -1942,6 +1942,10 @@ public static final List<String> LANGUAGES = List.of("cs", "de", "en", "es", "fr
       public static final String OPENING_HOURS = "opening_hours";
       /** This is a concatenation of the different address keys available, example addr:housenumber + addr:street */
       public static final String ADDRESS = "address";
+      /** Identifier of the Bikemap community report category the element matches, e.g. <code>pump</code>. */
+      public static final String CATEGORY = "category";
+      /** The <code>name</code> cut to 40 characters, the last one an ellipsis. */
+      public static final String NAME_TRUNC = "name_trunc";
     }
     /** Attribute values for map elements in the poi layer. */
     final class FieldValues {
