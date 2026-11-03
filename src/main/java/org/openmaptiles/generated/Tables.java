@@ -107,10 +107,13 @@ public class Tables {
         source.getBoolean("intermittent"), source.getBoolean("tunnel"), source.getBoolean("bridge"), source);
     }
 
-    /** Imposm3 "mapping" to filter OSM elements that should appear in this "table". */
+    /**
+     * Imposm3 "mapping" to filter OSM elements that should appear in this "table". Spring areas require an independent
+     * water tag because they do not necessarily outline surface water.
+     */
     public static final Expression MAPPING = and(
       or(matchAny("landuse", "reservoir", "basin", "salt_pond"), matchAny("leisure", "swimming_pool"),
-        matchAny("natural", "water", "bay", "spring"), matchAny("waterway", "dock"),
+        matchAny("natural", "water", "bay"), matchAny("waterway", "dock"),
         matchAny("water", "river", "stream", "canal", "ditch", "drain", "pond", "basin", "wastewater")),
       not(matchAny("covered", "yes")), matchType("polygon"));
 
