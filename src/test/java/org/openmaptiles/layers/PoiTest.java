@@ -599,6 +599,43 @@ class PoiTest extends AbstractLayerTest {
   }
 
   @Test
+  void testBikeParkingKeepsTheTagsThatTellItsKindsApart() {
+    assertFeatures(14, List.of(Map.of(
+      "_layer", "poi",
+      "category", "bike-parking",
+      "bicycle_parking", "lockers",
+      "covered", "yes",
+      "cargo_bike", "designated",
+      "capacity", "12",
+      "capacity_cargo_bike", "2",
+      "access", "customers",
+      "fee", "yes",
+      "operator", "Wiener Linien"
+    )), process(pointFeature(Map.of(
+      "amenity", "bicycle_parking",
+      "bicycle_parking", "lockers",
+      "covered", "yes",
+      "cargo_bike", "designated",
+      "capacity", "12",
+      "capacity:cargo_bike", "2",
+      "access", "customers",
+      "fee", "yes",
+      "operator", "Wiener Linien"
+    ))));
+    assertFeatures(14, List.of(Map.of("_layer", "poi", "category", "bike-parking", "bicycle_parking", "<null>")),
+      process(pointFeature(Map.of("amenity", "bicycle_parking"))));
+    // only bike parking carries them
+    assertFeatures(14, List.of(Map.of("_layer", "poi", "category", "drinking-water", "fee", "<null>")),
+      process(pointFeature(Map.of("amenity", "drinking_water", "fee", "yes"))));
+  }
+
+  @Test
+  void testSwingGate() {
+    assertFeatures(14, List.of(Map.of("_layer", "poi", "subclass", "swing_gate")),
+      process(pointFeature(Map.of("barrier", "swing_gate"))));
+  }
+
+  @Test
   void testMapOnlyAmenitiesHaveNoCategory() {
     assertFeatures(14, List.of(Map.of("_layer", "poi", "subclass", "bench", "category", "<null>")),
       process(pointFeature(Map.of("amenity", "bench"))));

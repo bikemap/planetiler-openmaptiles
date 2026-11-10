@@ -138,6 +138,12 @@ public class Poi implements
   private final Map<String, List<Tables.OsmPoiPoint>> aggStops = new HashMap<>();
 
   private static final int NAME_TRUNC_LENGTH = 40;
+  /**
+   * The OSM tags a bike parking keeps as attributes, so the style can tell lockers, covered, paid and cargo bike
+   * parking apart; a colon in the key becomes an underscore. {@code indoor} is already an attribute of every POI.
+   */
+  private static final List<String> BIKE_PARKING_TAGS = List.of("bicycle_parking", "covered", "cargo_bike", "capacity",
+    "capacity:cargo_bike", "access", "fee", "supervised", "operator");
 
   private static final Set<String> COUNTRIES_EUROPE = Set.of("at", "de", "nl", "no", "ch", "pl");
   private static final Set<String> SUPPORTED_COUNTRIES = Set.of("at", "de", "nl", "no", "ch", "pl", "br", "ru");
@@ -588,6 +594,13 @@ public class Poi implements
         element.addrState()
     );
 
+    String category = communityReportCategory(element.source());
+    if ("bike-parking".equals(category)) {
+      for (String tag : BIKE_PARKING_TAGS) {
+        output.setAttr(tag.replace(':', '_'), nullIfEmpty(element.source().getString(tag)));
+      }
+    }
+
     output.setBufferPixels(BUFFER_SIZE)
       .setAttr(Fields.CLASS, poiClass)
       .setAttr(Fields.SUBCLASS, subclass)
@@ -599,7 +612,7 @@ public class Poi implements
       .setAttr(Fields.WEBSITE, element.website())
       .setAttr(Fields.OPENING_HOURS, element.openingHours())
       .setAttr(Fields.ADDRESS, address)
-      .setAttr(Fields.CATEGORY, communityReportCategory(element.source()))
+      .setAttr(Fields.CATEGORY, category)
       .setAttr(Fields.NAME_TRUNC, truncatedName(nullIfEmpty(name)))
       .setAttr(Fields.AGG_STOP, aggStop)
       .putAttrs(OmtLanguageUtils.getNames(element.source().tags(), translations))
