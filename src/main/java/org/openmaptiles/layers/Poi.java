@@ -42,6 +42,7 @@ import static org.openmaptiles.util.Utils.nullIfLong;
 import static org.openmaptiles.util.Utils.nullOrEmpty;
 
 import com.carrotsearch.hppc.LongIntMap;
+import com.ibm.icu.lang.UCharacter;
 import com.onthegomap.planetiler.FeatureCollector;
 import com.onthegomap.planetiler.ForwardingProfile;
 import com.onthegomap.planetiler.VectorTile;
@@ -56,7 +57,9 @@ import com.onthegomap.planetiler.reader.SourceFeature;
 import com.onthegomap.planetiler.stats.Stats;
 import com.onthegomap.planetiler.util.Parse;
 import com.onthegomap.planetiler.util.Translations;
+import java.text.Normalizer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -114,7 +117,10 @@ public class Poi implements
     entry(FieldValues.CLASS_GROCERY, 500),
     entry(FieldValues.CLASS_FAST_FOOD, 600),
     entry(FieldValues.CLASS_CLOTHING_STORE, 700),
-    entry(FieldValues.CLASS_BAR, 800)
+    entry(FieldValues.CLASS_BAR, 800),
+    // Map-only clutter: after every other class, named or not (1_000 default + 2_000 for no name).
+    entry("bench", 4_000),
+    entry("shower", 4_000)
   );
   private static final Set<String> UNIVERSITY_POI_SUBCLASSES = Set.of("university", "college");
   private static final List<String> AGG_STOP_SUBCLASS_ORDER = List.of(
@@ -130,6 +136,14 @@ public class Poi implements
   private final Translations translations;
   private final Stats stats;
   private final Map<String, List<Tables.OsmPoiPoint>> aggStops = new HashMap<>();
+
+  private static final int NAME_TRUNC_LENGTH = 40;
+  /**
+   * The OSM tags a bike parking keeps as attributes, so the style can tell lockers, covered, paid and cargo bike
+   * parking apart; a colon in the key becomes an underscore. {@code indoor} is already an attribute of every POI.
+   */
+  private static final List<String> BIKE_PARKING_TAGS = List.of("bicycle_parking", "covered", "cargo_bike", "capacity",
+    "capacity:cargo_bike", "access", "fee", "supervised", "operator");
 
   private static final Set<String> COUNTRIES_EUROPE = Set.of("at", "de", "nl", "no", "ch", "pl");
   private static final Set<String> SUPPORTED_COUNTRIES = Set.of("at", "de", "nl", "no", "ch", "pl", "br", "ru");
@@ -163,6 +177,108 @@ public class Poi implements
       "subclass", subclass,
       "mapping_key", coalesce(mappingKey, "")
     ), subclass);
+  }
+
+  /**
+   * The identifier of the Bikemap community report category an OSM element maps to, or null.
+   * <p>
+   * A port of {@code osm_poi_category} in the api's {@code src/apps/pois/osm.py}, which indexes the same features for
+   * search: the two must agree, so a change here is a change there too.
+   */
+  static String communityReportCategory(SourceFeature source) {
+    if (source.hasTag("access", "private", "no")) {
+      return null;
+    }
+    if (source.hasTag("amenity", "bicycle_repair_station")) {
+      // A station with tools is a self-service station; so is one without either tag, the usual mapping of a stand.
+      boolean pumpOnly =
+        source.hasTag("service:bicycle:pump", "yes") && !source.hasTag("service:bicycle:tools", "yes");
+      return pumpOnly ? "pump" : "self-service-station";
+    }
+    if (source.hasTag("amenity", "bicycle_parking")) {
+      return "bike-parking";
+    }
+    if (source.hasTag("amenity", "charging_station") && source.hasTag("bicycle", "yes")) {
+      return "e-bike-charging";
+    }
+    if (source.hasTag("amenity", "shelter") &&
+      source.hasTag("shelter_type", "picnic_shelter", "basic_hut", "weather_shelter")) {
+      return "shelter";
+    }
+    if (source.hasTag("amenity", "vending_machine") && sellsBicycleTubes(source)) {
+      return "bicycle-tubes";
+    }
+    if (source.hasTag("amenity", "drinking_water")) {
+      return "drinking-water";
+    }
+    if (source.hasTag("amenity", "toilets")) {
+      return "public-toilets";
+    }
+    if (source.hasTag("emergency", "defibrillator")) {
+      return "aed";
+    }
+    if (source.hasTag("leisure", "swimming_area") ||
+      (source.hasTag("natural", "water") && source.hasTag("swimming", "yes"))) {
+      return "swimming-spot";
+    }
+    if (source.hasTag("leisure", "playground")) {
+      return "playground";
+    }
+    if (source.hasTag("tourism", "picnic_site")) {
+      return "picnic";
+    }
+    if (source.hasTag("tourism", "camp_site", "caravan_site")) {
+      return "campsite";
+    }
+    if (source.hasTag("tourism", "viewpoint")) {
+      return "vista-point";
+    }
+    // Guideposts are left out: there are 682k of them worldwide, and they would bury the boards.
+    if (source.hasTag("tourism", "information") && source.hasTag("information", "board", "map", "office")) {
+      return "info-point";
+    }
+    if (source.hasTag("shop", "bicycle")) {
+      return "repair-shop";
+    }
+    return null;
+  }
+
+  private static boolean sellsBicycleTubes(SourceFeature source) {
+    String vending = source.getString("vending");
+    return vending != null && Arrays.stream(vending.split(";")).map(String::strip).anyMatch("bicycle_tube"::equals);
+  }
+
+  /**
+   * The mapping lets in any vending machine whose {@code vending} contains "bicycle_tube"; this drops the near misses
+   * ("bicycle_tubes", "bicycle_tube_kit") so only tube vending machines reach the layer.
+   */
+  private static boolean isOtherVendingMachine(String mappingKey, String subclass, SourceFeature source) {
+    return "amenity".equals(mappingKey) && "vending_machine".equals(subclass) && !sellsBicycleTubes(source);
+  }
+
+  /**
+   * {@code name} cut like Django's {@code truncatechars(name, 40)}: NFC first, combining marks (canonical combining
+   * class above 0, as in Python's {@code unicodedata.combining}) do not count, and marks stay on the last kept letter.
+   */
+  static String truncatedName(String name) {
+    if (name == null) {
+      return null;
+    }
+    String text = Normalizer.normalize(name, Normalizer.Form.NFC);
+    int count = 0;
+    int end = 0;
+    for (int i = 0; i < text.length(); i += Character.charCount(text.codePointAt(i))) {
+      if (UCharacter.getCombiningClass(text.codePointAt(i)) != 0) {
+        continue;
+      }
+      count++;
+      if (count == NAME_TRUNC_LENGTH) {
+        end = i;
+      } else if (count > NAME_TRUNC_LENGTH) {
+        return text.substring(0, end) + "…";
+      }
+    }
+    return text;
   }
 
   private int minzoom(String subclass, String mappingKey) {
@@ -299,6 +415,9 @@ public class Poi implements
 
   @Override
   public void process(Tables.OsmPoiPoint element, FeatureCollector features) {
+    if (isOtherVendingMachine(element.mappingKey(), element.subclass(), element.source())) {
+      return;
+    }
     if (element.uicRef() != null && AGG_STOP_SUBCLASS_ORDER.contains(element.subclass())) {
       // multiple threads may update this concurrently
       String aggStopKey = element.uicRef()
@@ -394,6 +513,9 @@ public class Poi implements
 
   @Override
   public void process(Tables.OsmPoiPolygon element, FeatureCollector features) {
+    if (isOtherVendingMachine(element.mappingKey(), element.subclass(), element.source())) {
+      return;
+    }
     setupPoiFeature(element, features.centroidIfConvex(LAYER_NAME), null);
   }
 
@@ -472,6 +594,13 @@ public class Poi implements
         element.addrState()
     );
 
+    String category = communityReportCategory(element.source());
+    if ("bike-parking".equals(category)) {
+      for (String tag : BIKE_PARKING_TAGS) {
+        output.setAttr(tag.replace(':', '_'), nullIfEmpty(element.source().getString(tag)));
+      }
+    }
+
     output.setBufferPixels(BUFFER_SIZE)
       .setAttr(Fields.CLASS, poiClass)
       .setAttr(Fields.SUBCLASS, subclass)
@@ -483,6 +612,8 @@ public class Poi implements
       .setAttr(Fields.WEBSITE, element.website())
       .setAttr(Fields.OPENING_HOURS, element.openingHours())
       .setAttr(Fields.ADDRESS, address)
+      .setAttr(Fields.CATEGORY, category)
+      .setAttr(Fields.NAME_TRUNC, truncatedName(nullIfEmpty(name)))
       .setAttr(Fields.AGG_STOP, aggStop)
       .putAttrs(OmtLanguageUtils.getNames(element.source().tags(), translations))
       .setPointLabelGridPixelSize(14, 64)
