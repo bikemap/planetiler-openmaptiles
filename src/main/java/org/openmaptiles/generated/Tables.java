@@ -801,7 +801,7 @@ public class Tables {
       matchAny("tourism", "alpine_hut", "aquarium", "artwork", "attraction", "bed_and_breakfast", "camp_site",
         "caravan_site", "chalet", "gallery", "guest_house", "hostel", "hotel", "information", "motel", "museum",
         "picnic_site", "theme_park", "viewpoint", "zoo"),
-      matchAny("waterway", "dock"), matchAny("amenity", "bench", "bicycle_repair_station", "shower"),
+      matchAny("waterway", "dock"), matchAny("amenity", "bench", "bicycle_repair_station", "laundry", "shower"),
       and(matchAny("amenity", "vending_machine"), matchAny("vending", "%bicycle_tube%")),
       matchAny("emergency", "defibrillator"), and(matchAny("natural", "water"), matchAny("swimming", "yes"))),
       matchType("point"));
@@ -894,7 +894,7 @@ public class Tables {
       matchAny("tourism", "alpine_hut", "aquarium", "artwork", "attraction", "bed_and_breakfast", "camp_site",
         "caravan_site", "chalet", "gallery", "guest_house", "hostel", "hotel", "information", "motel", "museum",
         "picnic_site", "theme_park", "viewpoint", "zoo"),
-      matchAny("waterway", "dock"), matchAny("amenity", "bench", "bicycle_repair_station", "shower"),
+      matchAny("waterway", "dock"), matchAny("amenity", "bench", "bicycle_repair_station", "laundry", "shower"),
       and(matchAny("amenity", "vending_machine"), matchAny("vending", "%bicycle_tube%")),
       matchAny("emergency", "defibrillator"), and(matchAny("natural", "water"), matchAny("swimming", "yes"))),
       matchType("polygon"));

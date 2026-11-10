@@ -630,6 +630,14 @@ class PoiTest extends AbstractLayerTest {
   }
 
   @Test
+  void testLaundryUnderEitherKey() {
+    assertFeatures(14, List.of(Map.of("_layer", "poi", "class", "laundry", "subclass", "laundry")),
+      process(pointFeature(Map.of("amenity", "laundry"))));
+    assertFeatures(14, List.of(Map.of("_layer", "poi", "class", "laundry", "subclass", "laundry")),
+      process(pointFeature(Map.of("shop", "laundry"))));
+  }
+
+  @Test
   void testSwingGate() {
     assertFeatures(14, List.of(Map.of("_layer", "poi", "subclass", "swing_gate")),
       process(pointFeature(Map.of("barrier", "swing_gate"))));
