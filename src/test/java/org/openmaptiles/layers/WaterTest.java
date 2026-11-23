@@ -10,6 +10,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.openmaptiles.OpenMapTilesProfile;
 
 class WaterTest extends AbstractLayerTest {
@@ -516,13 +518,106 @@ class WaterTest extends AbstractLayerTest {
 
   @Test
   void testSpring() {
-    assertFeatures(11, List.of(Map.of(
-      "class", "lake",
-      "_layer", "water",
-      "_type", "polygon"
-    )), process(polygonFeature(Map.of(
+    assertFeatures(14, List.of(), process(polygonFeature(Map.of(
       "natural", "spring"
     ))));
+  }
+
+  @ParameterizedTest
+  @CsvSource({
+    "Sorgenti del Serio,,",
+    ",source,geoimage.at",
+    "Bačevo Underground Water-Well,industrial,well_cluster",
+    "Spring,water,yes",
+    "Spring,water,lake",
+    "Spring,water,stream_pool"
+  })
+  void testSpringWithoutWaterTagsDoesNotProduceFillOrLabel(String name, String key, String value) {
+    Map<String, Object> tags = new HashMap<>(Map.of("natural", "spring"));
+    if (name != null) {
+      tags.put("name", name);
+    }
+    if (key != null) {
+      tags.put(key, value);
+    }
+
+    assertFeatures(14, List.of(), process(polygonFeature(tags)));
+  }
+
+  @ParameterizedTest
+  @CsvSource({
+    "landuse,reservoir,lake,true",
+    "landuse,basin,lake,true",
+    "landuse,salt_pond,lake,false",
+    "waterway,dock,dock,true",
+    "water,river,river,false",
+    "water,stream,river,false",
+    "water,canal,river,false",
+    "water,ditch,river,false",
+    "water,drain,river,false",
+    "water,pond,pond,false",
+    "water,basin,pond,false",
+    "water,wastewater,pond,false",
+    "leisure,swimming_pool,swimming_pool,true"
+  })
+  void testSpringWithWaterTagsRetainsExistingFeatures(String key, String value, String waterClass, boolean hasPoi) {
+    List<Map<String, Object>> expected = new ArrayList<>();
+    expected.add(Map.of(
+      "_layer", "water",
+      "_type", "polygon",
+      "class", waterClass
+    ));
+    if (!"swimming_pool".equals(value)) {
+      expected.add(Map.of(
+        "_layer", "water_name",
+        "_type", "point",
+        "class", "lake",
+        "name", "Spring pool"
+      ));
+    }
+    if (hasPoi) {
+      expected.add(Map.of("_layer", "poi"));
+    }
+
+    assertFeatures(14, expected, process(polygonFeature(Map.of(
+      "name", "Spring pool",
+      "natural", "spring",
+      key, value
+    ))));
+  }
+
+  @ParameterizedTest
+  @CsvSource({
+    "water,-1,,lake",
+    "water,,underground,lake",
+    "spring,-1,,pond",
+    "spring,-1,underground,pond"
+  })
+  void testUndergroundTagsDoNotSuppressWater(String natural, String level, String location, String waterClass) {
+    Map<String, Object> tags = new HashMap<>(Map.of(
+      "name", "Water feature",
+      "natural", natural
+    ));
+    if ("spring".equals(natural)) {
+      tags.put("water", "pond");
+    }
+    if (level != null) {
+      tags.put("level", level);
+    }
+    if (location != null) {
+      tags.put("location", location);
+    }
+
+    assertFeatures(14, List.of(Map.of(
+      "_layer", "water",
+      "_type", "polygon",
+      "class", waterClass
+    ), Map.of(
+      "_layer", "water_name",
+      "_type", "point",
+      "class", "lake",
+      "name", "Water feature"
+    )), process(polygonFeature(tags)));
   }
 
   @Test
